@@ -19,32 +19,31 @@ BIGQUERY_MCP_URL = "https://bigquery.googleapis.com/mcp"
 PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT", "agent-vi-473112")
 
 
-def get_bigquery_toolset():
-    """
-    BigQuery MCP Toolsetを取得
-    Agent Engine上ではサービスアカウントの認証情報を使用
-    """
-    # Application Default Credentials (ADC) を使用
+def _get_auth_headers():
+    """認証ヘッダーを取得"""
     credentials, project = google.auth.default(
-        scopes=["https://www.googleapis.com/auth/bigquery"]
+        scopes=[
+            "https://www.googleapis.com/auth/bigquery",
+            "https://www.googleapis.com/auth/cloud-platform"
+        ]
     )
     
-    # トークンをリフレッシュ
     auth_request = google_requests.Request()
     credentials.refresh(auth_request)
     
-    # MCP接続ヘッダー
-    headers = {
+    return {
         "Authorization": f"Bearer {credentials.token}",
         "x-goog-user-project": project or PROJECT_ID
     }
-    
-    return MCPToolset(
-        connection_params=StreamableHTTPConnectionParams(
-            url=BIGQUERY_MCP_URL,
-            headers=headers
-        )
+
+
+# MCPToolset をグローバルで1回だけ初期化
+_bigquery_toolset = MCPToolset(
+    connection_params=StreamableHTTPConnectionParams(
+        url=BIGQUERY_MCP_URL,
+        headers=_get_auth_headers()
     )
+)
 
 
 # エージェント定義
@@ -56,19 +55,26 @@ root_agent = LlmAgent(
 
 プロジェクトID: {PROJECT_ID}
 
-BigQuery MCPツールを使って以下のことができます：
+## 利用可能なツール
 - list_dataset_ids: データセット一覧を取得
 - list_table_ids: テーブル一覧を取得  
 - get_table_info: テーブルのスキーマ情報を取得
 - execute_sql: 任意のSQLクエリを実行
 
-手順:
-1. まず list_dataset_ids でデータセットを確認
-2. list_table_ids でテーブル一覧を取得
-3. get_table_info でスキーマを確認
-4. execute_sql で分析クエリを実行
+## 重要なルール
+1. ユーザーの質問に答えるために必要なツールは、説明なしに即座に実行してください
+2. 「〜を取得します」「〜を実行します」と言う前に、まずツールを呼び出してください
+3. ツールの結果を待ってから、結果をユーザーに説明してください
+4. 1回のレスポンスで複数のツールを連続して呼び出すことができます
+
+## 例
+ユーザー: 「テーブル一覧を見せて」
+→ すぐに list_table_ids を実行し、結果を表示
+
+ユーザー: 「forecasting_sticker_salesのテーブルは？」
+→ すぐに list_table_ids(datasetId="forecasting_sticker_sales") を実行
 
 日本語で分かりやすく回答してください。
 """,
-    tools=[get_bigquery_toolset()]
+    tools=[_bigquery_toolset]
 )
